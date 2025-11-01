@@ -17,7 +17,7 @@ if not OPENAI_API_KEY:
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-DB_PATH = "invoices.db"
+DB_PATH = "invoices_v2.db"
 
 # ---------------- DATABASE SETUP ----------------
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -114,7 +114,6 @@ Rules:
 # ---------------- HELPERS ----------------
 
 def extract_json(text):
-    """Extract JSON array from model output."""
     try:
         return json.loads(text)
     except Exception:
@@ -129,7 +128,6 @@ def extract_json(text):
 
 
 def sanitize_number(value):
-    """Convert numbers safely."""
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -144,7 +142,6 @@ def sanitize_number(value):
 
 
 def insert_rows(rows):
-    """Insert parsed rows into DB."""
     for r in rows:
         cur.execute("""
             INSERT INTO invoice_line_items
@@ -169,13 +166,11 @@ def insert_rows(rows):
 
 
 def delete_row(row_id):
-    """Delete a record from the table."""
     cur.execute("DELETE FROM invoice_line_items WHERE id = ?", (row_id,))
     conn.commit()
 
 
 def fetch_all_rows():
-    """Fetch all invoices from DB."""
     return pd.read_sql_query(
         "SELECT id, marketplace_name, invoice_type, invoice_date, place_of_supply, gstin, "
         "service_description, net_taxable_value, total_IGST_amount, total_CGST_amount, total_SGST_amount, total_amount "
@@ -185,26 +180,32 @@ def fetch_all_rows():
 
 
 def image_to_base64(image: Image.Image) -> str:
-    """Convert image to base64 for API call."""
     buffered = io.BytesIO()
     image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
 
-def detect_marketplace_from_text(text):
-    """Identify if invoice is from Amazon or Flipkart."""
-    t = text.lower()
-    if "amazon" in t:
-        return "Amazon"
-    elif "flipkart" in t:
-        return "Flipkart"
-    else:
-        return "Unknown"
-
-
-def call_openai_vision(image: Image.Image, prompt):
-    """Send image + prompt to GPT-4o Vision."""
+def detect_marketplace(image: Image.Image):
+    """Use LLM to detect whether invoice is Amazon or Flipkart."""
     img_b64 = image_to_base64(image)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": [
+            {"type": "text", "text": "Identify if this invoice image belongs to Amazon or Flipkart. Reply only 'Amazon' or 'Flipkart'."},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}}
+        ]}],
+        temperature=0,
+        max_tokens=20
+    )
+    return response.choices[0].message.content.strip()
+
+
+def parse_invoice_image(image: Image.Image):
+    """Parse one image using OpenAI LLM."""
+    detected = detect_marketplace(image)
+    prompt = AMAZON_PROMPT if "amazon" in detected.lower() else FLIPKART_PROMPT
+    img_b64 = image_to_base64(image)
+
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
@@ -214,50 +215,48 @@ def call_openai_vision(image: Image.Image, prompt):
             ]}
         ],
         temperature=0,
-        max_tokens=1800
+        max_tokens=2000
     )
-    return response.choices[0].message.content
+    return extract_json(response.choices[0].message.content)
 
 # ---------------- STREAMLIT UI ----------------
+
 st.set_page_config(page_title="Marketplace Invoice Parser", layout="wide")
 st.title("🧾 Marketplace Invoice Parser (Amazon & Flipkart)")
 
-uploaded_file = st.file_uploader("Upload Invoice Image", type=["jpg", "jpeg", "png"])
+uploaded_files = st.file_uploader("Upload up to 10 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 parse_button = st.button("Parse & Save Data")
 
 if parse_button:
-    if not uploaded_file:
-        st.warning("Please upload an image first.")
+    if not uploaded_files:
+        st.warning("Please upload at least one image.")
     else:
-        try:
-            image = Image.open(uploaded_file).convert("RGB")
-            with st.spinner("🔍 Detecting marketplace..."):
-                text_preview = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": [
-                        {"type": "text", "text": "Identify if this invoice is from Amazon or Flipkart. Return only the name."},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_to_base64(image)}"}}
-                    ]}],
-                    temperature=0,
-                    max_tokens=50
-                )
-                detected_source = text_preview.choices[0].message.content.strip()
+        if len(uploaded_files) > 10:
+            uploaded_files = uploaded_files[:10]
+            st.info("Only the first 10 images will be processed.")
 
-            prompt = AMAZON_PROMPT if "amazon" in detected_source.lower() else FLIPKART_PROMPT
+        progress = st.progress(0)
+        status = st.empty()
 
-            with st.spinner(f"🧠 Parsing {detected_source} invoice..."):
-                llm_output = call_openai_vision(image, prompt)
-            parsed = extract_json(llm_output)
+        total = len(uploaded_files)
+        for i, file in enumerate(uploaded_files):
+            try:
+                image = Image.open(file).convert("RGB")
+                status.text(f"Processing {file.name} ({i+1}/{total})...")
+                parsed = parse_invoice_image(image)
+                if parsed:
+                    insert_rows(parsed)
+                    st.success(f"✅ {file.name} parsed successfully ({len(parsed)} line items)")
+                else:
+                    st.warning(f"⚠️ Could not parse {file.name}")
+            except Exception as e:
+                st.error(f"❌ Error parsing {file.name}: {e}")
+                st.error(traceback.format_exc())
 
-            if not parsed:
-                st.error("❌ Could not parse valid JSON. Try again or check the image.")
-            else:
-                insert_rows(parsed)
-                st.success(f"✅ Parsed and saved {len(parsed)} line items successfully!")
-                st.rerun()
-        except Exception as e:
-            st.error(f"Error: {e}")
-            st.error(traceback.format_exc())
+            progress.progress((i + 1) / total)
+
+        status.success("🎉 All invoices processed successfully!")
+        st.rerun()
 
 # ---------------- TABLE VIEW ----------------
 st.markdown("---")
@@ -265,7 +264,7 @@ st.subheader("📊 Stored Invoice Line Items")
 
 df = fetch_all_rows()
 if df.empty:
-    st.info("No records yet. Upload an invoice to begin.")
+    st.info("No records yet. Upload some invoices to begin.")
 else:
     col_table, col_buttons = st.columns([18, 1])
 
@@ -282,7 +281,6 @@ else:
     with col_buttons:
         st.markdown("<div style='margin-top: 35px;'></div>", unsafe_allow_html=True)
         for _, row in df.iterrows():
-            btn_key = f"delete_{row['id']}"
-            if st.button("🗑️", key=btn_key):
+            if st.button("🗑️", key=f"delete_{row['id']}"):
                 delete_row(row["id"])
                 st.rerun()

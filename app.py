@@ -8,16 +8,17 @@ import io
 import os
 from PIL import Image
 import base64
+import asyncio
 import traceback
 
 # ---------------- CONFIG ----------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    st.warning("⚠️ Please set OPENAI_API_KEY in Streamlit secrets or environment variables.")
+    st.warning("⚠️ Please set your OPENAI_API_KEY in environment variables or Streamlit secrets.")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-DB_PATH = "invoices_v2.db"
+DB_PATH = "invoices_v3.db"
 
 # ---------------- DATABASE SETUP ----------------
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -186,12 +187,11 @@ def image_to_base64(image: Image.Image) -> str:
 
 
 def detect_marketplace(image: Image.Image):
-    """Use LLM to detect whether invoice is Amazon or Flipkart."""
     img_b64 = image_to_base64(image)
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": [
-            {"type": "text", "text": "Identify if this invoice image belongs to Amazon or Flipkart. Reply only 'Amazon' or 'Flipkart'."},
+            {"type": "text", "text": "Identify if this invoice belongs to Amazon or Flipkart. Reply only 'Amazon' or 'Flipkart'."},
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}}
         ]}],
         temperature=0,
@@ -219,13 +219,47 @@ def parse_invoice_image(image: Image.Image):
     )
     return extract_json(response.choices[0].message.content)
 
+# ---------------- ASYNC PROCESSING ----------------
+
+async def process_image_async(file, semaphore, progress, i, total):
+    """Process a single image asynchronously, wrapped in semaphore for concurrency control."""
+    async with semaphore:
+        try:
+            image = Image.open(file).convert("RGB")
+            parsed = await asyncio.to_thread(parse_invoice_image, image)
+            if parsed:
+                insert_rows(parsed)
+                st.toast(f"✅ {file.name} parsed ({len(parsed)} line items)", icon="✅")
+            else:
+                st.toast(f"⚠️ Could not parse {file.name}", icon="⚠️")
+        except Exception as e:
+            st.toast(f"❌ Error with {file.name}: {e}", icon="❌")
+            traceback.print_exc()
+        finally:
+            progress.progress((i + 1) / total)
+
+
+async def process_all_images_async(files):
+    total = len(files)
+    progress = st.progress(0)
+    semaphore = asyncio.Semaphore(5)  # limit to 5 concurrent tasks
+
+    tasks = []
+    for i, file in enumerate(files):
+        task = asyncio.create_task(process_image_async(file, semaphore, progress, i, total))
+        tasks.append(task)
+
+    await asyncio.gather(*tasks)
+    progress.progress(1.0)
+    st.success("🎉 All invoices processed successfully!")
+
 # ---------------- STREAMLIT UI ----------------
 
 st.set_page_config(page_title="Marketplace Invoice Parser", layout="wide")
-st.title("🧾 Marketplace Invoice Parser (Amazon & Flipkart)")
+st.title("⚡ Async Marketplace Invoice Parser (Amazon + Flipkart)")
 
 uploaded_files = st.file_uploader("Upload up to 10 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
-parse_button = st.button("Parse & Save Data")
+parse_button = st.button("🚀 Parse & Save Data (Async)")
 
 if parse_button:
     if not uploaded_files:
@@ -234,28 +268,7 @@ if parse_button:
         if len(uploaded_files) > 10:
             uploaded_files = uploaded_files[:10]
             st.info("Only the first 10 images will be processed.")
-
-        progress = st.progress(0)
-        status = st.empty()
-
-        total = len(uploaded_files)
-        for i, file in enumerate(uploaded_files):
-            try:
-                image = Image.open(file).convert("RGB")
-                status.text(f"Processing {file.name} ({i+1}/{total})...")
-                parsed = parse_invoice_image(image)
-                if parsed:
-                    insert_rows(parsed)
-                    st.success(f"✅ {file.name} parsed successfully ({len(parsed)} line items)")
-                else:
-                    st.warning(f"⚠️ Could not parse {file.name}")
-            except Exception as e:
-                st.error(f"❌ Error parsing {file.name}: {e}")
-                st.error(traceback.format_exc())
-
-            progress.progress((i + 1) / total)
-
-        status.success("🎉 All invoices processed successfully!")
+        asyncio.run(process_all_images_async(uploaded_files))
         st.rerun()
 
 # ---------------- TABLE VIEW ----------------

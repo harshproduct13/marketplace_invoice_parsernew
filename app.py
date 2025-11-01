@@ -256,10 +256,10 @@ async def process_all_images_async(files):
 # ---------------- STREAMLIT UI ----------------
 
 st.set_page_config(page_title="Marketplace Invoice Parser", layout="wide")
-st.title("⚡ Async Marketplace Invoice Parser (Amazon + Flipkart)")
+st.title("Marketplace Invoice Parser")
 
 uploaded_files = st.file_uploader("Upload up to 10 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
-parse_button = st.button("🚀 Parse & Save Data (Async)")
+parse_button = st.button("🚀 Parse & Save Data")
 
 if parse_button:
     if not uploaded_files:

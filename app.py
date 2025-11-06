@@ -285,11 +285,23 @@ else:
     # --- Delete All Button Section ---
     st.markdown("---")
     st.markdown("### ⚙️ Actions")
-    if st.button("🗑️ Delete All Entries", type="secondary", use_container_width=True):
-        st.warning("⚠️ This will permanently delete all invoice entries.")
-        confirm = st.checkbox("I understand, delete all data permanently")
-        if confirm:
-            cur.execute("DELETE FROM invoice_line_items")
-            conn.commit()
-            st.success("✅ All entries deleted successfully.")
-            st.rerun()
+    # --- Delete All Section (Fixed with session_state) ---
+st.markdown("---")
+st.markdown("### ⚙️ Actions")
+
+if "show_delete_confirmation" not in st.session_state:
+    st.session_state.show_delete_confirmation = False
+
+if st.button("🗑️ Delete All Entries", type="secondary", use_container_width=True):
+    st.session_state.show_delete_confirmation = True
+
+if st.session_state.show_delete_confirmation:
+    st.warning("⚠️ This will permanently delete all invoice entries.")
+    confirm = st.checkbox("I understand, delete all data permanently")
+    if confirm:
+        cur.execute("DELETE FROM invoice_line_items")
+        conn.commit()
+        st.success("✅ All entries deleted successfully.")
+        st.session_state.show_delete_confirmation = False
+        st.rerun()
+

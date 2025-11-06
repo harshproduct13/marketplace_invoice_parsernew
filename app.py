@@ -251,16 +251,16 @@ async def process_all_images_async(files):
 st.set_page_config(page_title="Marketplace Invoice Parser", layout="wide")
 st.title("⚡ Async Marketplace Invoice Parser (Amazon + Flipkart)")
 
-uploaded_files = st.file_uploader("Upload up to 10 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("Upload up to 30 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 parse_button = st.button("🚀 Parse & Save Data (Async)")
 
 if parse_button:
     if not uploaded_files:
         st.warning("Please upload at least one image.")
     else:
-        if len(uploaded_files) > 10:
-            uploaded_files = uploaded_files[:10]
-            st.info("Only the first 10 images will be processed.")
+        if len(uploaded_files) > 30:
+            uploaded_files = uploaded_files[:30]
+            st.info("Only the first 30 images will be processed.")
         asyncio.run(process_all_images_async(uploaded_files))
         st.rerun()
 

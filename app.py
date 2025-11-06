@@ -201,7 +201,6 @@ def detect_marketplace(image: Image.Image):
 
 
 def parse_invoice_image(image: Image.Image):
-    """Parse one image using OpenAI LLM."""
     detected = detect_marketplace(image)
     prompt = AMAZON_PROMPT if "amazon" in detected.lower() else FLIPKART_PROMPT
     img_b64 = image_to_base64(image)
@@ -222,7 +221,6 @@ def parse_invoice_image(image: Image.Image):
 # ---------------- ASYNC PROCESSING ----------------
 
 async def process_image_async(file, semaphore, progress, i, total):
-    """Process a single image asynchronously, wrapped in semaphore for concurrency control."""
     async with semaphore:
         try:
             image = Image.open(file).convert("RGB")
@@ -242,7 +240,7 @@ async def process_image_async(file, semaphore, progress, i, total):
 async def process_all_images_async(files):
     total = len(files)
     progress = st.progress(0)
-    semaphore = asyncio.Semaphore(5)  # limit to 5 concurrent tasks
+    semaphore = asyncio.Semaphore(5)  # Limit to 5 concurrent tasks
 
     tasks = []
     for i, file in enumerate(files):
@@ -256,18 +254,18 @@ async def process_all_images_async(files):
 # ---------------- STREAMLIT UI ----------------
 
 st.set_page_config(page_title="Marketplace Invoice Parser", layout="wide")
-st.title("Marketplace Invoice Parser")
+st.title("⚡ Async Marketplace Invoice Parser (Amazon + Flipkart)")
 
-uploaded_files = st.file_uploader("Upload up to 30 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
-parse_button = st.button("🚀 Parse & Save Data")
+uploaded_files = st.file_uploader("Upload up to 10 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+parse_button = st.button("🚀 Parse & Save Data (Async)")
 
 if parse_button:
     if not uploaded_files:
         st.warning("Please upload at least one image.")
     else:
-        if len(uploaded_files) > 30:
-            uploaded_files = uploaded_files[:30]
-            st.info("Only the first 30 images will be processed.")
+        if len(uploaded_files) > 10:
+            uploaded_files = uploaded_files[:10]
+            st.info("Only the first 10 images will be processed.")
         asyncio.run(process_all_images_async(uploaded_files))
         st.rerun()
 
@@ -294,6 +292,16 @@ else:
     with col_buttons:
         st.markdown("<div style='margin-top: 35px;'></div>", unsafe_allow_html=True)
         for _, row in df.iterrows():
-            if st.button("🗑️", key=f"delete_{row['id']}"):
-                delete_row(row["id"])
-                st.rerun()
+            delete_html = f"""
+            <a href='?delete_id={row['id']}' 
+               style='color:#ff4b4b; text-decoration:underline; font-weight:500; font-size:14px;'>
+               Delete
+            </a>
+            """
+            st.markdown(delete_html, unsafe_allow_html=True)
+
+        query_params = st.query_params
+        if "delete_id" in query_params:
+            delete_row(query_params["delete_id"])
+            st.experimental_set_query_params()
+            st.rerun()

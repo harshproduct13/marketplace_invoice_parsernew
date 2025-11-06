@@ -166,11 +166,6 @@ def insert_rows(rows):
     conn.commit()
 
 
-def delete_row(row_id):
-    cur.execute("DELETE FROM invoice_line_items WHERE id = ?", (row_id,))
-    conn.commit()
-
-
 def fetch_all_rows():
     return pd.read_sql_query(
         "SELECT id, marketplace_name, invoice_type, invoice_date, place_of_supply, gstin, "
@@ -240,7 +235,7 @@ async def process_image_async(file, semaphore, progress, i, total):
 async def process_all_images_async(files):
     total = len(files)
     progress = st.progress(0)
-    semaphore = asyncio.Semaphore(5)  # Limit to 5 concurrent tasks
+    semaphore = asyncio.Semaphore(5)
 
     tasks = []
     for i, file in enumerate(files):
@@ -254,18 +249,18 @@ async def process_all_images_async(files):
 # ---------------- STREAMLIT UI ----------------
 
 st.set_page_config(page_title="Marketplace Invoice Parser", layout="wide")
-st.title("⚡ Async Marketplace Invoice Parser (Amazon + Flipkart)")
+st.title("⚡ Marketplace Invoice Parser")
 
-uploaded_files = st.file_uploader("Upload up to 10 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("Upload up to 30 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 parse_button = st.button("🚀 Parse & Save Data (Async)")
 
 if parse_button:
     if not uploaded_files:
         st.warning("Please upload at least one image.")
     else:
-        if len(uploaded_files) > 10:
-            uploaded_files = uploaded_files[:10]
-            st.info("Only the first 10 images will be processed.")
+        if len(uploaded_files) > 30:
+            uploaded_files = uploaded_files[:30]
+            st.info("Only the first 30 images will be processed.")
         asyncio.run(process_all_images_async(uploaded_files))
         st.rerun()
 
@@ -277,31 +272,28 @@ df = fetch_all_rows()
 if df.empty:
     st.info("No records yet. Upload some invoices to begin.")
 else:
-    col_table, col_buttons = st.columns([18, 1])
+    st.download_button(
+        label="⬇️ Download as CSV",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name="invoice_data.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
 
-    with col_table:
-        st.download_button(
-            label="⬇️ Download as CSV",
-            data=df.to_csv(index=False).encode("utf-8"),
-            file_name="invoice_data.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-        st.dataframe(df.drop(columns=["id"]), use_container_width=True, hide_index=True)
+    st.dataframe(df.drop(columns=["id"]), use_container_width=True, hide_index=True)
 
-    with col_buttons:
-        st.markdown("<div style='margin-top: 35px;'></div>", unsafe_allow_html=True)
-        for _, row in df.iterrows():
-            delete_html = f"""
-            <a href='?delete_id={row['id']}' 
-               style='color:#ff4b4b; text-decoration:underline; font-weight:500; font-size:14px;'>
-               Delete
-            </a>
-            """
-            st.markdown(delete_html, unsafe_allow_html=True)
-
-        query_params = st.query_params
-        if "delete_id" in query_params:
-            delete_row(query_params["delete_id"])
-            st.experimental_set_query_params()
-            st.rerun()
+    # --- Delete All Button Section ---
+    st.markdown("---")
+    st.markdown("### ⚙️ Actions")
+    if st.button("🗑️ Delete All Entries", type="secondary", use_container_width=True):
+        with st.modal("Are you sure you want to delete all entries?"):
+            st.warning("This action will permanently delete **all invoice line items** from the database.")
+            confirm_col1, confirm_col2 = st.columns([1, 1])
+            with confirm_col1:
+                if st.button("✅ Yes, Delete All", use_container_width=True, type="primary"):
+                    cur.execute("DELETE FROM invoice_line_items")
+                    conn.commit()
+                    st.success("All entries deleted successfully.")
+                    st.rerun()
+            with confirm_col2:
+                st.button("❌ Cancel", use_container_width=True)

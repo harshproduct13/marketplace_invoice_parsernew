@@ -286,14 +286,10 @@ else:
     st.markdown("---")
     st.markdown("### ⚙️ Actions")
     if st.button("🗑️ Delete All Entries", type="secondary", use_container_width=True):
-        with st.modal("Are you sure you want to delete all entries?"):
-            st.warning("This action will permanently delete **all invoice line items** from the database.")
-            confirm_col1, confirm_col2 = st.columns([1, 1])
-            with confirm_col1:
-                if st.button("✅ Yes, Delete All", use_container_width=True, type="primary"):
-                    cur.execute("DELETE FROM invoice_line_items")
-                    conn.commit()
-                    st.success("All entries deleted successfully.")
-                    st.rerun()
-            with confirm_col2:
-                st.button("❌ Cancel", use_container_width=True)
+    st.warning("⚠️ This will permanently delete all invoice entries.")
+    confirm = st.checkbox("I understand, delete all data permanently")
+    if confirm:
+        cur.execute("DELETE FROM invoice_line_items")
+        conn.commit()
+        st.success("✅ All entries deleted successfully.")
+        st.rerun()

@@ -249,18 +249,18 @@ async def process_all_images_async(files):
 # ---------------- STREAMLIT UI ----------------
 
 st.set_page_config(page_title="Marketplace Invoice Parser", layout="wide")
-st.title("⚡ Marketplace Invoice Parser")
+st.title("⚡ Async Marketplace Invoice Parser (Amazon + Flipkart)")
 
-uploaded_files = st.file_uploader("Upload up to 30 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("Upload up to 10 invoice images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 parse_button = st.button("🚀 Parse & Save Data (Async)")
 
 if parse_button:
     if not uploaded_files:
         st.warning("Please upload at least one image.")
     else:
-        if len(uploaded_files) > 30:
-            uploaded_files = uploaded_files[:30]
-            st.info("Only the first 30 images will be processed.")
+        if len(uploaded_files) > 10:
+            uploaded_files = uploaded_files[:10]
+            st.info("Only the first 10 images will be processed.")
         asyncio.run(process_all_images_async(uploaded_files))
         st.rerun()
 
@@ -286,10 +286,10 @@ else:
     st.markdown("---")
     st.markdown("### ⚙️ Actions")
     if st.button("🗑️ Delete All Entries", type="secondary", use_container_width=True):
-    st.warning("⚠️ This will permanently delete all invoice entries.")
-    confirm = st.checkbox("I understand, delete all data permanently")
-    if confirm:
-        cur.execute("DELETE FROM invoice_line_items")
-        conn.commit()
-        st.success("✅ All entries deleted successfully.")
-        st.rerun()
+        st.warning("⚠️ This will permanently delete all invoice entries.")
+        confirm = st.checkbox("I understand, delete all data permanently")
+        if confirm:
+            cur.execute("DELETE FROM invoice_line_items")
+            conn.commit()
+            st.success("✅ All entries deleted successfully.")
+            st.rerun()
